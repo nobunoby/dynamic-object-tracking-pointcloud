@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import rospy
 import roslib
 import random
@@ -36,7 +36,7 @@ class tracked_object:
 	''' Class to make individual tracked objects. More attributes can be added as detection algorithms evolve '''
 
 
-	def __init__(self, x = 0.0, y = 0.0, z = 0.0, is_active = False, is_dead = False, youth = 0, strikes = 0, dt = 0.16): #dt = 0.1 bcoz we getting data at 10Hz
+	def __init__(self, x = 0.0, y = 0.0, z = 0.0, is_active = False, is_dead = False, youth = 0, strikes = 0, dt = 0.1): #dt = 0.1 bcoz we getting data at 10Hz
 		'''
 		x and yare coordinates of the the obstacles in the plane they are moving. is_active determines if a marker is to be published for this object.
 		Youth variable is used to track the number of frames a new object appears, this is to filter out transient noise. Strikes calculate how long the object was not tracked.
@@ -55,35 +55,32 @@ class tracked_object:
 		# kalman filter object. x = [x, x_dot, y, y_dot] and z = [x_measured, y_measured]
 		self.kf = KalmanFilter (dim_x=4, dim_z=2)
 		# state transition matrix
-		self.kf.F = np.array([[1, dt, 0,  0],
-													[0,  1, 0,  0],
-													[0,  0, 1, dt],
-													[0,  0, 0,  1]])
+		self.kf.F = np.array([[1,  dt, 0,  0],
+							  [0,  1, 0,  0],
+							  [0,  0, 1,  0],
+							  [0,  0, 0,  dt]])
 		# process noise matrix
-		q = Q_discrete_white_noise(dim=2, dt=dt, var = 2) # orignal value 200
-		self.kf.Q = block_diag(q, q)
+		#q = Q_discrete_white_noise(dim=2, dt=dt, var = 2) # orignal value 200
+		self.kf.Q = block_diag(1.5, 200, 1.5, 200)
+
+
 		# measurement funtion
 		self.kf.H = np.array([[1, 0, 0, 0],
-													[0, 0, 1, 0]])
+							  [0, 0, 1, 0]])
 		# measurement noise matrix
-		self.kf.R = np.array([[0.05, 0.],
-													[0., 0.05]])   #orignal values .2
+		self.kf.R = np.array([[0.01, 0.],
+							  [0., 0.01]])   #orignal values .2
+
+		# initial state
 		self.kf.x = np.array([[self.x, 0, self.y, 0]]).T ######it is z, not y for the time being
+
+		# initia covariance
 		# self.kf.P = np.eye(4) * 100.
 		self.kf.P = np.array([[1,  0, 0,  0], #######original value 2
-													[0, 4, 0,  0],
-													[0,  0, 1,  0],
-													[0,  0, 0, 4]])
-		# can be added later
-		#self.frame
+							  [0, 15, 0,  0],
+							  [0,  0, 1,  0],
+							  [0,  0, 0, 15]])
 
-	def update_matrices(self, dt):
-		self.kf.F = np.array([[1, dt, 0,  0],
-													[0,  1, 0,  0],
-													[0,  0, 1, dt],
-													[0,  0, 0,  1]])
-		q = Q_discrete_white_noise(dim=2, dt=dt, var=0.001)
-		self.kf.Q = block_diag(q, q)
 
 	def activate(self):
 		self.is_active = True
@@ -101,7 +98,7 @@ class Mot:
 	'''Multi object tracker class'''
 
 	marker = Marker()
-	marker.header.frame_id = "/base_link"
+	marker.header.frame_id = "base_link"
 
 	marker.ns = "mot_ojects"
 	# marker.id = 1
@@ -119,13 +116,17 @@ class Mot:
 	marker.scale.z = 1
 	# marker.lifetime = rospy.Duration(2)
 
+	last_time_cb = 0
+	cb_dt = 0
+
+
 	def __init__(self):
 		# self.tracker_pub = rospy.Publisher("/tracked_markers", MarkerArray, queue_size = 10)
 		self.tracker_list_pub = rospy.Publisher("/tracked_marker_list", Marker, queue_size = 10)
 		# self.velocity_pub = rospy.Publisher("/velocity_viz", Point, queue_size = 10)
 		self.centoid_sub = rospy.Subscriber("/object_centroids", PoseArray, self.centroid_callback, queue_size = 10)
 		self.tracked_objects = []
-		self.distance_threshold = 1
+		self.distance_threshold = 0.9
 		self.youth_threshold = 3
 		self.strikes_threshold = 3
 		self.newDataAvailable = False
@@ -138,6 +139,12 @@ class Mot:
 		self.trans_matrix = None
 
 	def centroid_callback(self, ros_data):
+		if self.newDataAvailable == True:
+			self.dt = ros_data.header.stamp - self.last_time_cb
+		else:
+			self.dt = 0
+		self.last_time_cb = ros_data.header.stamp
+
 		self.newDataAvailable = True
 		self.latest_header = ros_data.header
 		self.latest_objects = ros_data.poses
@@ -147,10 +154,10 @@ class Mot:
 
 		try:
 			now = rospy.Time.now()
- 			self.listener.waitForTransform("/latest_centroids", "/prev_centroids", now, rospy.Duration(4.0))
+			self.listener.waitForTransform("/latest_centroids", "/prev_centroids", now, rospy.Duration(4.0))
 			(trans,rot) = self.listener.lookupTransform('/latest_centroids', '/prev_centroids', now)
 		except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
-			print "waiting for tf"
+			print ("waiting for tf")
 
 		self.trans_matrix = self.transformer.fromTranslationRotation(trans, rot)
 		# print self.trans_matrix
@@ -177,25 +184,13 @@ class Mot:
 		# if there are currently no tracked objects, start tracking all the objects in the recieved message
 		if not self.tracked_objects:
 			for i in self.latest_objects:
-				self.tracked_objects.append(tracked_object(i.position.x, i.position.y, i.position.z))
+				self.tracked_objects.append(tracked_object(i.position.x, i.position.y, i.position.z, dt=self.cb_dt))
 			return
-
-		# print "latest centroids"
-		# for i in self.latest_objects:
-		# 	print i.position.x, i.position.y, i.position.z
-
 
 		# separate out the centroids from tracked objects and and the new objects ros message lists and convert them to numpy arrays
 		tracked_centroids_coord = np.matrix([(i.x, i.y, i.z, 1) for i in self.tracked_objects])
 		#
 		tracked_centroids_coord_odom = self.trans_matrix * tracked_centroids_coord.T
-
-
-
-
-		# print "odometry"
-		# print np.shape(tracked_centroids_coord)
-		# print tracked_centroids_coord
 
 
 		for  index in range(len(self.tracked_objects)):
@@ -216,9 +211,6 @@ class Mot:
 
 		latest_centroids = np.asarray([(i.position.x, i.position.y, i.position.z) for i in self.latest_objects])
 
-		#rospy.loginfo(str(len(tracked_centroids)) +", "+ str(len(latest_centroids)) )
-		# calculating the costmatrix based on euclidean distance and applying munkres assignment to get row and column indices
-		# row_ind, col_ind <--> tracked_centroids, latest_centroids
 		cost_matrix = distance.cdist(tracked_centroids,latest_centroids,'euclidean')
 		row_ind, col_ind = linear_sum_assignment(cost_matrix)
 
@@ -233,9 +225,6 @@ class Mot:
 		if len(pairs) != 0:
 
 			for index in range(len(pairs)):
-				# self.tracked_objects[pairs[index,0]].x = latest_centroids[pairs[index,1]][0]
-				# self.tracked_objects[pairs[index,0]].y = latest_centroids[pairs[index,1]][1]
-				# self.tracked_objects[pairs[index,0]].z = latest_centroids[pairs[index,1]][2]
 				z_kf = np.array([[latest_centroids[pairs[index,1]][0]],[latest_centroids[pairs[index,1]][1]]])
 				self.tracked_objects[pairs[index,0]].kf.update(z_kf)
 				# updating our own instance variables with updated values from the kf object
@@ -270,13 +259,6 @@ class Mot:
 			for x in np.nditer(new_trackers_to_start):
 				self.tracked_objects.append(tracked_object(latest_centroids[x,0],latest_centroids[x,1], latest_centroids[x,2]))
 
-		# print "tracked centroids"
-		# for i in self.tracked_objects:
-		# 	x_vel = i.kf.x[1][0]
-		# 	y_vel = i.kf.x[3][0]
-		# 	norm_vel = math.sqrt(x_vel**2 + y_vel**2)
-		# 	print i.x, i.y, i.youth, i.strikes, norm_vel
-
 
 def main():
 	rospy.init_node('multi_object_tracker', anonymous=False)
@@ -286,13 +268,11 @@ def main():
 	while not mot.newDataAvailable and not rospy.is_shutdown():
 		rospy.loginfo("Waiting for first message...")
 		#rospy.loginfo(str(mot.newDataAvailable) +" "+ str(rospy.is_shutdown())
-		print mot.newDataAvailable, rospy.is_shutdown()
+		print (mot.newDataAvailable, rospy.is_shutdown())
 		rospy.sleep(1.0)
 
-	print "here1"
-	# loop_count = 0
-	# plt.ion()
-	# fig=plt.figure()
+	print ("here1")
+
 	while not rospy.is_shutdown():
 		Mot.marker.action = 2 #DELETEALL
 		Mot.marker.colors = []
@@ -314,43 +294,6 @@ def main():
 				Mot.marker.colors.append(obj.color)
 				Mot.marker.points.append(Point(obj.x, obj.y, obj.z))
 
-
-				#rospy.loginfo("Centroid "+ str(index) + " :" + str(obj.x) +", "+ str(obj.y) + ", "+ str(obj.z))
-				#################
-				#rospy.loginfo(str(obj.kf.P))
-				# str_to_append = obj.id + ", " + str(obj.kf.P[0][0]) + "," + str(obj.kf.P[2][0]) + "," + str(obj.kf.P[0][2]) + "," + str(obj.kf.P[2][2]) + "," + str(obj.kf.x[0][0]) + "," + str(obj.kf.x[2][0]) + "\n"
-				# print str_to_append
-				# with open('/home/sig/plot_data.txt', 'a') as file:
-				# 	file.write(str_to_append)
-
-
-
-				# if index == 0:
-				# 	x_vel = obj.kf.x[1][0]
-				# 	y_vel = obj.kf.x[3][0]
-				# 	norm_vel = math.sqrt(x_vel**2 + y_vel**2)
-				# 	mot.velocity_pub.publish(norm_vel, 0. , 0.)
-
-
-
-
-
-				# if loop_count % 5 == 0:
-				# 	cov = np.array([[obj.kf.P[0][0],obj.kf.P[2][0]],
-				# 									[obj.kf.P[0][2],obj.kf.P[2][2]]])
-				# 	mean = (obj.kf.x[0][0], obj.kf.x[2][0])
-					# cov = np.array([[obj.kf.P[1][1],obj.kf.P[3][1]],
-													# [obj.kf.P[1][3],obj.kf.P[3][3]]])
-					# mean = (obj.kf.x[1][0], obj.kf.x[3][0])
-					# plot_covariance_ellipse(mean, cov=cov, fc='r', std=1, alpha=0.2)
-					# plt.pause(0.001)
-				#################
-			## rospy.wait_for_service('/plot_tool/draw_pose')
-			## try:
-			## 	draw_pose = rospy.ServiceProxy('/plot_tool/draw_pose', PlotPose)
-			## 	resp1 = draw_pose(Mot.marker.pose, int(index) , True, ord('o'), 1)
-			## except rospy.ServiceException, e:
-			## 	print "Service call failed: %s"%e
 		mot.tracker_list_pub.publish(Mot.marker)
 		# loop_count += 1
 		rate.sleep()

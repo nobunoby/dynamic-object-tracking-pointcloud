@@ -278,8 +278,8 @@ struct Float3{
 
         void detect_spatial_change (const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_now,
                                     const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_to_compare,
-                                    const pcl::PointCloud<pcl::PointXYZ>::Ptr& dynamic_cloud,
-                                    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& occuluded_cloud,
+                                    pcl::PointCloud<pcl::PointXYZ>::Ptr& dynamic_cloud,
+                                    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& occuluded_cloud,
                                     float OCTREE_RESOLUTION,
                                     bool ENABLE_OCCLUSION_DETECTION);
         /**

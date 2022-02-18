@@ -19,10 +19,8 @@ public:
     OcclusionDetection(const double resolution_arg);
     ~OcclusionDetection(){};
 
-    //
     //template< typename LeafContainerT, typename BranchContainerT>
     float testForOcclusion2 (const PointT& point_arg, const pcl::PointXYZ& camera_pos)
-    //bool testForOcclusion2 (const PointT& point_arg, const pcl::PointXYZ& camera_pos)
        {
          OctreeKey key;
          this->genOctreeKeyforPoint (point_arg, key);
@@ -83,7 +81,9 @@ public:
 
 private:
     float resolution_;
-
+    float min_x_ = 0;
+    float min_y_ = 0;
+    float min_z_ = 0;
 };
 
 
@@ -149,7 +149,6 @@ void cloud_segmentation::init(ros::NodeHandle &nh, ros::NodeHandle &private_nh){
 
 
 void cloud_segmentation::cloud_cb(const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
-
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ> ());
     pcl::PointCloud<pcl::PointXYZ>::Ptr dynamic_cloud (new pcl::PointCloud<pcl::PointXYZ> ());
@@ -422,6 +421,7 @@ void cloud_segmentation::cloud_cb(const sensor_msgs::PointCloud2ConstPtr& cloud_
                 obj_pose.position.x = it->x;
                 obj_pose.position.y = it->y;
                 obj_pose.position.z = it->z;
+                obj_pose.orientation.w = 1.0;
                 obj_poses.poses.push_back(obj_pose);
                 // std::cout << it->x <<" "<<it->y<< '\n';
             }
@@ -726,8 +726,8 @@ Ransac_plane (const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_in, const pcl::Po
 
 void cloud_segmentation:: detect_spatial_change (const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_now,
                                                 const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_to_compare,
-                                                const pcl::PointCloud<pcl::PointXYZ>::Ptr& dynamic_cloud,
-                                                const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& occuluded_cloud,
+                                                pcl::PointCloud<pcl::PointXYZ>::Ptr& dynamic_cloud,
+                                                pcl::PointCloud<pcl::PointXYZRGB>::Ptr& occuluded_cloud,
                                                 float OCTREE_RESOLUTION,
                                                 bool ENABLE_OCCLUSION_DETECTION){
 
